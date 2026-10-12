@@ -1,0 +1,6 @@
+{
+  "name": "Nana Tayantuh",
+  "description": "Game cacing multipemain modern seru seperti Worms Zone dengan kustomisasi skin, leaderboard global, mode landscape, dan arena pertempuran.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
