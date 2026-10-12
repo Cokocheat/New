@@ -73,13 +73,13 @@ fun GamePlayScreen(viewModel: GameViewModel) {
         }
     }
 
-    // 60 FPS Smooth Game Loop with clamped delta-time for silky gameplay
+    // Smooth 120 FPS High-Performance Game Loop with dynamic delta-time
     LaunchedEffect(world.isGameOver, world.isPaused) {
         var lastNanos = 0L
         while (!world.isGameOver) {
             withFrameNanos { now ->
                 if (lastNanos > 0L && !world.isPaused) {
-                    val dt = ((now - lastNanos) / 1_000_000_000f).coerceIn(0.008f, 0.033f)
+                    val dt = ((now - lastNanos) / 1_000_000_000f).coerceIn(0.003f, 0.033f)
                     world.update(dt)
                     frameTick++
                 }
@@ -223,7 +223,7 @@ fun GamePlayScreen(viewModel: GameViewModel) {
             },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = if (isRadarExpanded) 240.dp else 170.dp, bottom = 22.dp)
+                .padding(end = if (isRadarExpanded) 180.dp else 138.dp, bottom = 22.dp)
         )
 
         // Pause Modal Dialog
@@ -268,7 +268,7 @@ fun GamePlayScreen(viewModel: GameViewModel) {
     }
 }
 
-// MODERN TACTICAL RADAR MINIMAP (Real-Time 60 FPS, Sleek Worms Zone Design)
+// MODERN CIRCULAR TACTICAL RADAR MINIMAP (Real-Time 120 FPS High-Precision Slither HUD)
 @Composable
 private fun TacticalRadarOverlay(
     world: GameWorld,
@@ -277,205 +277,128 @@ private fun TacticalRadarOverlay(
     onToggleExpand: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val radarSize = if (isExpanded) 200.dp else 134.dp
+    val diameter = if (isExpanded) 154.dp else 112.dp
     val player = world.playerWorm
-    val posX = player.headPosition.x.toInt()
-    val posY = player.headPosition.y.toInt()
-    val sectorName = world.getPlayerSectorName()
 
-    Card(
+    Box(
         modifier = modifier
-            .width(radarSize)
-            .shadow(16.dp, RoundedCornerShape(20.dp)),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xEE09111F))
+            .size(diameter)
+            .shadow(16.dp, CircleShape)
+            .clip(CircleShape)
+            .background(Color(0xDD070D18))
+            .border(2.dp, Color(0xFF00E5FF).copy(alpha = 0.85f), CircleShape)
+            .clickable { onToggleExpand() },
+        contentAlignment = Alignment.Center
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .border(1.5.dp, Color(0xFF00E5FF).copy(alpha = 0.5f), RoundedCornerShape(20.dp))
-                .padding(6.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Radar Header: Sector title & expand toggle
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(6.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF00E676))
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = sectorName,
-                        color = Color(0xFF00E5FF),
-                        fontWeight = FontWeight.Black,
-                        fontSize = if (isExpanded) 11.sp else 9.sp
-                    )
-                }
-                Icon(
-                    imageVector = if (isExpanded) Icons.Default.ZoomInMap else Icons.Default.ZoomOutMap,
-                    contentDescription = "Zoom Radar",
-                    tint = Color.White.copy(alpha = 0.7f),
-                    modifier = Modifier
-                        .size(14.dp)
-                        .clickable { onToggleExpand() }
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            // Crucial: reading frameTick triggers recomposition and redraws on every single frame!
+            val tick = frameTick
+            val radius = size.minDimension / 2f
+            val center = Offset(size.width / 2f, size.height / 2f)
+            val worldRadius = world.arenaRadius
+            val usableRadius = radius * 0.88f
+
+            // 1. Radar Distance Rings (33%, 66%, 100%)
+            drawCircle(color = Color(0x2200E5FF), radius = usableRadius * 0.33f, center = center, style = Stroke(width = 1f))
+            drawCircle(color = Color(0x2200E5FF), radius = usableRadius * 0.66f, center = center, style = Stroke(width = 1f))
+            drawCircle(color = Color(0x3300E5FF), radius = usableRadius, center = center, style = Stroke(width = 1.2f))
+
+            // 2. Crosshair Grid Lines
+            drawLine(color = Color(0x2600E5FF), start = Offset(center.x - usableRadius, center.y), end = Offset(center.x + usableRadius, center.y), strokeWidth = 1f)
+            drawLine(color = Color(0x2600E5FF), start = Offset(center.x, center.y - usableRadius), end = Offset(center.x, center.y + usableRadius), strokeWidth = 1f)
+
+            // 3. Rotating 360° Radar Scanner Beam
+            val scanAngle = world.radarScanAngle
+            val beamEnd = center + Offset(cos(scanAngle) * usableRadius, sin(scanAngle) * usableRadius)
+            drawLine(
+                color = Color(0xAA00E676),
+                start = center,
+                end = beamEnd,
+                strokeWidth = 2.2f
+            )
+
+            // 4. Food Nebula Micro-dots
+            val sampleStep = max(1, world.foods.size / (if (isExpanded) 110 else 60))
+            for (i in 0 until world.foods.size step sampleStep) {
+                val f = world.foods[i]
+                val normX = (f.position.x / worldRadius).coerceIn(-1f, 1f)
+                val normY = (f.position.y / worldRadius).coerceIn(-1f, 1f)
+                val dotX = center.x + normX * usableRadius
+                val dotY = center.y + normY * usableRadius
+                drawCircle(
+                    color = Color(0x77FFD700),
+                    radius = if (isExpanded) 1.8f else 1.2f,
+                    center = Offset(dotX, dotY)
                 )
             }
 
-            // Radar Circular Canvas
-            Box(
-                modifier = Modifier
-                    .size(if (isExpanded) 160.dp else 100.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF060A13))
-                    .border(1.5.dp, Color(0xFF00E5FF), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val radius = size.minDimension / 2f
-                    val center = Offset(size.width / 2f, size.height / 2f)
-                    val worldRadius = world.arenaRadius
+            // 5. Enemy Worms (Real-Time Dynamic Positions)
+            val maxScoreBot = world.botWorms.filter { it.isAlive }.maxByOrNull { it.score }
+            for (bot in world.botWorms) {
+                if (!bot.isAlive) continue
+                val normX = (bot.headPosition.x / worldRadius).coerceIn(-1f, 1f)
+                val normY = (bot.headPosition.y / worldRadius).coerceIn(-1f, 1f)
+                val dotPos = center + Offset(normX * usableRadius, normY * usableRadius)
+                val isLeader = bot.id == maxScoreBot?.id
 
-                    // 1. Radar Distance Rings (25%, 50%, 75%, 100%)
-                    drawCircle(
-                        color = Color(0x2200E5FF),
-                        radius = radius * 0.33f,
-                        center = center,
-                        style = Stroke(width = 1f)
-                    )
-                    drawCircle(
-                        color = Color(0x2200E5FF),
-                        radius = radius * 0.66f,
-                        center = center,
-                        style = Stroke(width = 1f)
-                    )
-
-                    // 2. Crosshairs (Axes)
-                    drawLine(
-                        color = Color(0x3300E5FF),
-                        start = Offset(center.x - radius, center.y),
-                        end = Offset(center.x + radius, center.y),
-                        strokeWidth = 1f
-                    )
-                    drawLine(
-                        color = Color(0x3300E5FF),
-                        start = Offset(center.x, center.y - radius),
-                        end = Offset(center.x, center.y + radius),
-                        strokeWidth = 1f
-                    )
-
-                    // 3. Rotating 360° Radar Scanner Beam
-                    val scanAngle = world.radarScanAngle
-                    val beamEnd = center + Offset(cos(scanAngle) * radius, sin(scanAngle) * radius)
-                    drawLine(
-                        color = Color(0x9900E676),
-                        start = center,
-                        end = beamEnd,
-                        strokeWidth = 2f
-                    )
-
-                    // 4. Food Nebula Micro-dots (Sampled)
-                    val sampleStep = max(1, world.foods.size / (if (isExpanded) 90 else 50))
-                    for (i in 0 until world.foods.size step sampleStep) {
-                        val f = world.foods[i]
-                        val normX = f.position.x / worldRadius
-                        val normY = f.position.y / worldRadius
-                        val dotX = center.x + normX * (radius * 0.92f)
-                        val dotY = center.y + normY * (radius * 0.92f)
-                        drawCircle(
-                            color = Color(0x88FFD700),
-                            radius = if (isExpanded) 1.8f else 1.2f,
-                            center = Offset(dotX, dotY)
-                        )
-                    }
-
-                    // 5. Enemy Worms (Red Blips) + Highlight Top #1 Leader
-                    val maxScoreBot = world.botWorms.maxByOrNull { it.score }
-                    for (bot in world.botWorms) {
-                        if (!bot.isAlive) continue
-                        val normX = bot.headPosition.x / worldRadius
-                        val normY = bot.headPosition.y / worldRadius
-                        val dotX = center.x + normX * (radius * 0.92f)
-                        val dotY = center.y + normY * (radius * 0.92f)
-                        val isLeader = bot.id == maxScoreBot?.id
-
-                        if (isLeader) {
-                            // Golden glowing crown/diamond for top leader
-                            drawCircle(
-                                color = Color(0x66FFD700),
-                                radius = if (isExpanded) 6f else 4.5f,
-                                center = Offset(dotX, dotY)
-                            )
-                            drawCircle(
-                                color = Color(0xFFFFD700),
-                                radius = if (isExpanded) 3.5f else 2.6f,
-                                center = Offset(dotX, dotY)
-                            )
-                        } else {
-                            drawCircle(
-                                color = Color(0xFFFF3D00),
-                                radius = if (isExpanded) 2.8f else 2.2f,
-                                center = Offset(dotX, dotY)
-                            )
-                        }
-                    }
-
-                    // 6. Player Worm (Cyan Directional Heading Arrow)
-                    if (world.playerWorm.isAlive) {
-                        val normX = world.playerWorm.headPosition.x / worldRadius
-                        val normY = world.playerWorm.headPosition.y / worldRadius
-                        val dotX = center.x + normX * (radius * 0.92f)
-                        val dotY = center.y + normY * (radius * 0.92f)
-                        val pCenter = Offset(dotX, dotY)
-
-                        val pAngle = world.playerWorm.currentAngle
-                        val arrLen = if (isExpanded) 9f else 7f
-                        val tip = pCenter + Offset(cos(pAngle) * arrLen, sin(pAngle) * arrLen)
-                        val b1 = pCenter + Offset(cos(pAngle + 2.4f) * (arrLen * 0.8f), sin(pAngle + 2.4f) * (arrLen * 0.8f))
-                        val b2 = pCenter + Offset(cos(pAngle - 2.4f) * (arrLen * 0.8f), sin(pAngle - 2.4f) * (arrLen * 0.8f))
-
-                        val arrPath = Path().apply {
-                            moveTo(tip.x, tip.y)
-                            lineTo(b1.x, b1.y)
-                            lineTo(pCenter.x, pCenter.y)
-                            lineTo(b2.x, b2.y)
-                            close()
-                        }
-                        drawCircle(color = Color(0x6600E5FF), radius = if (isExpanded) 8f else 5.5f, center = pCenter)
-                        drawPath(arrPath, color = Color(0xFF00E5FF))
-                    }
+                if (isLeader) {
+                    // Golden crown leader blip with pulse
+                    drawCircle(color = Color(0x66FFD700), radius = if (isExpanded) 6.5f else 4.8f, center = dotPos)
+                    drawCircle(color = Color(0xFFFFD700), radius = if (isExpanded) 3.8f else 2.8f, center = dotPos)
+                } else {
+                    // Enemy crimson dot
+                    drawCircle(color = Color(0xFFFF1744).copy(alpha = 0.5f), radius = if (isExpanded) 4f else 3f, center = dotPos)
+                    drawCircle(color = Color(0xFFFF3D00), radius = if (isExpanded) 2.6f else 2.0f, center = dotPos)
                 }
             }
 
-            // Radar Footer Coordinates
-            Spacer(modifier = Modifier.height(3.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "MAP 11.2KM",
-                    color = Color.White.copy(alpha = 0.5f),
-                    fontSize = 8.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "X:$posX Y:$posY",
-                    color = Color(0xFF00E5FF),
-                    fontSize = 8.sp,
-                    fontWeight = FontWeight.Bold
-                )
+            // 6. Player Worm (Real-Time Cyan Beacon + Direction Arrow)
+            if (player.isAlive) {
+                val normX = (player.headPosition.x / worldRadius).coerceIn(-1f, 1f)
+                val normY = (player.headPosition.y / worldRadius).coerceIn(-1f, 1f)
+                val pCenter = center + Offset(normX * usableRadius, normY * usableRadius)
+
+                // Animated pulsing radar beacon
+                val pulse = (sin(tick * 0.14f) + 1f) * 0.5f
+                val beaconR = (if (isExpanded) 9f else 7f) + pulse * 3.5f
+                drawCircle(color = Color(0x5500E5FF), radius = beaconR, center = pCenter)
+
+                // Directional Heading Triangle Arrow
+                val pAngle = player.currentAngle
+                val arrLen = if (isExpanded) 8.5f else 6.5f
+                val tip = pCenter + Offset(cos(pAngle) * arrLen, sin(pAngle) * arrLen)
+                val b1 = pCenter + Offset(cos(pAngle + 2.4f) * (arrLen * 0.8f), sin(pAngle + 2.4f) * (arrLen * 0.8f))
+                val b2 = pCenter + Offset(cos(pAngle - 2.4f) * (arrLen * 0.8f), sin(pAngle - 2.4f) * (arrLen * 0.8f))
+
+                val arrPath = Path().apply {
+                    moveTo(tip.x, tip.y)
+                    lineTo(b1.x, b1.y)
+                    lineTo(pCenter.x, pCenter.y)
+                    lineTo(b2.x, b2.y)
+                    close()
+                }
+                drawPath(arrPath, color = Color(0xFF00E676))
+                drawCircle(color = Color.White, radius = 2f, center = pCenter)
             }
+
+            // 7. Outer Compass Markers (North indicator)
+            drawCircle(
+                color = Color(0xFFFF1744),
+                radius = 2.5f,
+                center = Offset(center.x, center.y - usableRadius)
+            )
         }
+
+        // Circular Radar Mini Label
+        Text(
+            text = if (isExpanded) "RADAR 11KM" else "RADAR",
+            color = Color(0xFF00E5FF).copy(alpha = 0.75f),
+            fontSize = 7.sp,
+            fontWeight = FontWeight.Black,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 6.dp)
+        )
     }
 }
 

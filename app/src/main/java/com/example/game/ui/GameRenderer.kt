@@ -109,16 +109,19 @@ class GameRenderer {
             style = Stroke(width = 10f * zoom)
         )
 
-        // 3. Draw Foods (culling outside viewport for smooth 60fps performance)
+        // 3. Draw Foods (Viewport Culling for Butter-Smooth 120 FPS Performance)
         val screenMargin = 90f
-        for (food in world.foods) {
-            val screenPos = toScreen(food.position)
-            if (screenPos.x < -screenMargin || screenPos.x > viewportWidth + screenMargin ||
-                screenPos.y < -screenMargin || screenPos.y > viewportHeight + screenMargin
-            ) {
-                continue
-            }
+        val minWorldX = cameraX - (halfW + screenMargin) / zoom
+        val maxWorldX = cameraX + (halfW + screenMargin) / zoom
+        val minWorldY = cameraY - (halfH + screenMargin) / zoom
+        val maxWorldY = cameraY + (halfH + screenMargin) / zoom
 
+        for (food in world.foods) {
+            val fx = food.position.x
+            val fy = food.position.y
+            if (fx < minWorldX || fx > maxWorldX || fy < minWorldY || fy > maxWorldY) continue
+
+            val screenPos = toScreen(food.position)
             drawFood(scope, food, screenPos, zoom)
         }
 
@@ -508,20 +511,36 @@ class GameRenderer {
                 else -> colors[0]
             }
 
+            // 1. Dark cel-shaded outer contour
             scope.drawCircle(
-                color = Color(0xFF141414),
-                radius = segRadius + 2.5f * zoom,
+                color = Color(0xFF10141D),
+                radius = segRadius + 2.4f * zoom,
                 center = segPos
             )
+            // 2. Base vibrant segment color
             scope.drawCircle(
                 color = segColor,
                 radius = segRadius,
                 center = segPos
             )
+            // 3. Volumetric 3D sphere ambient occlusion shade (bottom-right)
             scope.drawCircle(
-                color = Color.White.copy(alpha = 0.38f),
-                radius = segRadius * 0.5f,
-                center = segPos - Offset(segRadius * 0.28f, segRadius * 0.28f)
+                color = Color.Black.copy(alpha = 0.22f),
+                radius = segRadius * 0.88f,
+                center = segPos + Offset(segRadius * 0.16f, segRadius * 0.16f)
+            )
+            // 4. Soft glossy specular highlight (top-left)
+            scope.drawCircle(
+                color = Color.White.copy(alpha = 0.36f),
+                radius = segRadius * 0.44f,
+                center = segPos - Offset(segRadius * 0.26f, segRadius * 0.26f)
+            )
+            // 5. Pinpoint bright specular glint
+            val pinR = (segRadius * 0.15f).coerceAtLeast(1.5f)
+            scope.drawCircle(
+                color = Color.White.copy(alpha = 0.75f),
+                radius = pinR,
+                center = segPos - Offset(segRadius * 0.36f, segRadius * 0.36f)
             )
         }
 
@@ -530,20 +549,34 @@ class GameRenderer {
         if (headScreen.x >= -headRadius * 2 && headScreen.x <= viewportW + headRadius * 2 &&
             headScreen.y >= -headRadius * 2 && headScreen.y <= viewportH + headRadius * 2
         ) {
+            // Head Cel-shaded Outline
             scope.drawCircle(
-                color = Color(0xFF141414),
+                color = Color(0xFF10141D),
                 radius = headRadius + 3f * zoom,
                 center = headScreen
             )
+            // Base Head Color
             scope.drawCircle(
                 color = colors.first(),
                 radius = headRadius,
                 center = headScreen
             )
+            // 3D Head Dome Shading
             scope.drawCircle(
-                color = Color.White.copy(alpha = 0.42f),
-                radius = headRadius * 0.52f,
-                center = headScreen - Offset(headRadius * 0.28f, headRadius * 0.28f)
+                color = Color.Black.copy(alpha = 0.18f),
+                radius = headRadius * 0.90f,
+                center = headScreen + Offset(headRadius * 0.14f, headRadius * 0.14f)
+            )
+            // Head Glossy Highlight
+            scope.drawCircle(
+                color = Color.White.copy(alpha = 0.40f),
+                radius = headRadius * 0.48f,
+                center = headScreen - Offset(headRadius * 0.26f, headRadius * 0.26f)
+            )
+            scope.drawCircle(
+                color = Color.White.copy(alpha = 0.80f),
+                radius = (headRadius * 0.16f).coerceAtLeast(2f),
+                center = headScreen - Offset(headRadius * 0.36f, headRadius * 0.36f)
             )
 
             // Eyes
@@ -557,13 +590,13 @@ class GameRenderer {
             val eyeRadius = headRadius * 0.42f
             val pupilRadius = eyeRadius * 0.52f
 
-            drawCartoonEye(scope, leftEyePos, eyeRadius, pupilRadius, eyeAngle, worm.blinkProgress, zoom)
-            drawCartoonEye(scope, rightEyePos, eyeRadius, pupilRadius, eyeAngle, worm.blinkProgress, zoom)
+            drawCartoonEye(scope, leftEyePos, eyeRadius, pupilRadius, eyeAngle, worm.blinkProgress, worm.isBoosting, zoom)
+            drawCartoonEye(scope, rightEyePos, eyeRadius, pupilRadius, eyeAngle, worm.blinkProgress, worm.isBoosting, zoom)
 
-            // Cheeks
+            // Cheeks with soft gradient glow
             val blushDist = headRadius * 0.72f
-            scope.drawCircle(color = Color(0x77FF4081), radius = headRadius * 0.24f, center = headScreen + Offset(cos(eyeAngle - 1.2f) * blushDist, sin(eyeAngle - 1.2f) * blushDist))
-            scope.drawCircle(color = Color(0x77FF4081), radius = headRadius * 0.24f, center = headScreen + Offset(cos(eyeAngle + 1.2f) * blushDist, sin(eyeAngle + 1.2f) * blushDist))
+            scope.drawCircle(color = Color(0x66FF4081), radius = headRadius * 0.26f, center = headScreen + Offset(cos(eyeAngle - 1.2f) * blushDist, sin(eyeAngle - 1.2f) * blushDist))
+            scope.drawCircle(color = Color(0x66FF4081), radius = headRadius * 0.26f, center = headScreen + Offset(cos(eyeAngle + 1.2f) * blushDist, sin(eyeAngle + 1.2f) * blushDist))
 
             // Mouth
             drawWormMouth(scope, worm.face.type, headScreen, headRadius, eyeAngle, worm.isBoosting, worm.tongueTimer, zoom)
@@ -580,6 +613,7 @@ class GameRenderer {
         pupilRadius: Float,
         lookAngle: Float,
         blink: Float,
+        isBoosting: Boolean,
         zoom: Float
     ) {
         if (blink >= 0.75f) {
@@ -587,22 +621,64 @@ class GameRenderer {
             val dx = cos(perp) * eyeRadius
             val dy = sin(perp) * eyeRadius
             scope.drawLine(
-                color = Color(0xFF1E1E24),
+                color = Color(0xFF10141C),
                 start = pos - Offset(dx, dy),
                 end = pos + Offset(dx, dy),
-                strokeWidth = 3.5f * zoom
+                strokeWidth = 3.8f * zoom
             )
             return
         }
 
-        scope.drawCircle(color = Color(0xFF1E1E24), radius = eyeRadius + 1.5f * zoom, center = pos)
-        scope.drawCircle(color = Color.White, radius = eyeRadius, center = pos)
+        // 1. Dark eye outline
+        scope.drawCircle(color = Color(0xFF0C101A), radius = eyeRadius + 2f * zoom, center = pos)
+        // 2. Pearlescent white sclera
+        scope.drawCircle(color = Color(0xFFFAFAFA), radius = eyeRadius, center = pos)
+        // 3. Subtle ambient inner shadow at top
+        scope.drawCircle(color = Color.Black.copy(alpha = 0.12f), radius = eyeRadius * 0.95f, center = pos + Offset(0f, eyeRadius * 0.12f))
 
-        val pupilOffsetDist = eyeRadius * 0.35f
+        // 4. Directional Pupil with Iris
+        val pupilOffsetDist = eyeRadius * 0.38f
         val pupilCenter = pos + Offset(cos(lookAngle) * pupilOffsetDist, sin(lookAngle) * pupilOffsetDist)
 
-        scope.drawCircle(color = Color(0xFF121214), radius = pupilRadius, center = pupilCenter)
-        scope.drawCircle(color = Color.White, radius = pupilRadius * 0.45f, center = pupilCenter - Offset(pupilRadius * 0.32f, pupilRadius * 0.32f))
+        // Iris ring (rich dark sapphire)
+        val irisRadius = pupilRadius * 1.30f
+        scope.drawCircle(color = Color(0xFF1E293B), radius = irisRadius, center = pupilCenter)
+        // Deep obsidian pupil
+        scope.drawCircle(color = Color(0xFF0A0E17), radius = pupilRadius, center = pupilCenter)
+
+        // 5. Dual Catchlights (Sparkle in the eyes)
+        // Main primary catchlight (top-left)
+        val mainGlintR = pupilRadius * 0.46f
+        scope.drawCircle(
+            color = Color.White,
+            radius = mainGlintR,
+            center = pupilCenter - Offset(pupilRadius * 0.32f, pupilRadius * 0.32f)
+        )
+        // Secondary bounce catchlight (bottom-right)
+        val secondGlintR = (pupilRadius * 0.20f).coerceAtLeast(1.2f)
+        scope.drawCircle(
+            color = Color.White.copy(alpha = 0.85f),
+            radius = secondGlintR,
+            center = pupilCenter + Offset(pupilRadius * 0.36f, pupilRadius * 0.30f)
+        )
+
+        // 6. Expressive Eyebrows
+        val browOffsetDist = eyeRadius * 1.05f
+        val browCenter = pos - Offset(cos(lookAngle) * 2f, browOffsetDist)
+        val browW = eyeRadius * 1.15f
+        val perp = lookAngle + (PI / 2f).toFloat()
+
+        if (isBoosting) {
+            // Intense fierce eyebrow when boosting
+            val b1 = browCenter - Offset(cos(perp) * browW * 0.5f, sin(perp) * browW * 0.5f - 2.5f * zoom)
+            val b2 = browCenter + Offset(cos(perp) * browW * 0.5f, sin(perp) * browW * 0.5f + 2.5f * zoom)
+            scope.drawLine(color = Color(0xFF141923), start = b1, end = b2, strokeWidth = 3.6f * zoom)
+        } else {
+            // Cheerful cute arched eyebrow
+            val b1 = browCenter - Offset(cos(perp) * browW * 0.45f, sin(perp) * browW * 0.45f)
+            val b2 = browCenter + Offset(cos(perp) * browW * 0.45f, sin(perp) * browW * 0.45f)
+            scope.drawLine(color = Color(0xFF141923), start = b1, end = b2, strokeWidth = 2.6f * zoom)
+        }
     }
 
     private fun drawWormMouth(
@@ -670,45 +746,100 @@ class GameRenderer {
 
         when (hatType) {
             HatType.CROWN -> {
-                val crownW = headRadius * 1.15f
-                val crownH = headRadius * 0.65f
+                val crownW = headRadius * 1.25f
+                val crownH = headRadius * 0.70f
                 val crownPath = Path().apply {
                     moveTo(hatCenter.x - crownW / 2f, hatCenter.y)
-                    lineTo(hatCenter.x - crownW / 2f, hatCenter.y - crownH)
-                    lineTo(hatCenter.x - crownW / 4f, hatCenter.y - crownH * 0.45f)
-                    lineTo(hatCenter.x, hatCenter.y - crownH * 1.1f)
-                    lineTo(hatCenter.x + crownW / 4f, hatCenter.y - crownH * 0.45f)
-                    lineTo(hatCenter.x + crownW / 2f, hatCenter.y - crownH)
+                    lineTo(hatCenter.x - crownW / 2f, hatCenter.y - crownH * 0.85f)
+                    lineTo(hatCenter.x - crownW * 0.28f, hatCenter.y - crownH * 0.40f)
+                    lineTo(hatCenter.x, hatCenter.y - crownH * 1.15f)
+                    lineTo(hatCenter.x + crownW * 0.28f, hatCenter.y - crownH * 0.40f)
+                    lineTo(hatCenter.x + crownW / 2f, hatCenter.y - crownH * 0.85f)
                     lineTo(hatCenter.x + crownW / 2f, hatCenter.y)
                     close()
                 }
-                scope.drawPath(crownPath, color = Color(0xFFFFD700))
-                scope.drawPath(crownPath, color = Color(0xFF5D4037), style = Stroke(width = 2f * zoom))
-                scope.drawCircle(color = Color(0xFFFF1744), radius = 3.5f * zoom, center = hatCenter + Offset(0f, -crownH * 1.1f))
-                scope.drawCircle(color = Color(0xFF00E5FF), radius = 3f * zoom, center = hatCenter + Offset(-crownW / 2f, -crownH))
-                scope.drawCircle(color = Color(0xFF00E5FF), radius = 3f * zoom, center = hatCenter + Offset(crownW / 2f, -crownH))
+                // Rich golden crown body
+                scope.drawPath(crownPath, color = Color(0xFFFFC107))
+                scope.drawPath(crownPath, color = Color(0xFF5D4037), style = Stroke(width = 2.4f * zoom))
+
+                // Embossed bottom rim
+                scope.drawRoundRect(
+                    color = Color(0xFFFFD54F),
+                    topLeft = Offset(hatCenter.x - crownW / 2f - 2f * zoom, hatCenter.y - 6f * zoom),
+                    size = Size(crownW + 4f * zoom, 8f * zoom),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(3f * zoom, 3f * zoom)
+                )
+                scope.drawRoundRect(
+                    color = Color(0xFF6D4C41),
+                    topLeft = Offset(hatCenter.x - crownW / 2f - 2f * zoom, hatCenter.y - 6f * zoom),
+                    size = Size(crownW + 4f * zoom, 8f * zoom),
+                    style = Stroke(width = 1.5f * zoom),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(3f * zoom, 3f * zoom)
+                )
+
+                // Central multi-faceted Ruby gem with glint
+                val gemR = 5f * zoom
+                val rubyCenter = hatCenter + Offset(0f, -crownH * 1.15f)
+                scope.drawCircle(color = Color(0xFFFF1744), radius = gemR, center = rubyCenter)
+                scope.drawCircle(color = Color.White, radius = gemR * 0.35f, center = rubyCenter - Offset(gemR * 0.3f, gemR * 0.3f))
+
+                // Side Sapphire gems
+                val s1 = hatCenter + Offset(-crownW / 2f, -crownH * 0.85f)
+                val s2 = hatCenter + Offset(crownW / 2f, -crownH * 0.85f)
+                scope.drawCircle(color = Color(0xFF00E5FF), radius = 4f * zoom, center = s1)
+                scope.drawCircle(color = Color.White, radius = 1.4f * zoom, center = s1 - Offset(1.2f * zoom, 1.2f * zoom))
+                scope.drawCircle(color = Color(0xFF00E5FF), radius = 4f * zoom, center = s2)
+                scope.drawCircle(color = Color.White, radius = 1.4f * zoom, center = s2 - Offset(1.2f * zoom, 1.2f * zoom))
             }
             HatType.SUNGLASSES -> {
-                val glassW = headRadius * 0.95f
-                val glassH = headRadius * 0.4f
-                val glassCenter = headPos + Offset(cos(angle) * headRadius * 0.4f, sin(angle) * headRadius * 0.4f - headRadius * 0.15f)
+                val glassW = headRadius * 1.05f
+                val glassH = headRadius * 0.44f
+                val glassCenter = headPos + Offset(cos(angle) * headRadius * 0.4f, sin(angle) * headRadius * 0.4f - headRadius * 0.12f)
+
+                // Dark sculpted acetate frame
                 scope.drawRoundRect(
-                    color = Color(0xFF111111),
+                    color = Color(0xFF0A0E17),
                     topLeft = glassCenter - Offset(glassW / 2f, glassH / 2f),
                     size = Size(glassW, glassH),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(5f * zoom, 5f * zoom)
+                )
+
+                // Golden metal bridge
+                scope.drawLine(
+                    color = Color(0xFFFFD700),
+                    start = glassCenter - Offset(glassW * 0.08f, glassH * 0.15f),
+                    end = glassCenter + Offset(glassW * 0.08f, -glassH * 0.15f),
+                    strokeWidth = 2.5f * zoom
+                )
+
+                // Left Polarized Mirrored Lens
+                scope.drawRoundRect(
+                    color = Color(0xFF00E5FF),
+                    topLeft = glassCenter - Offset(glassW * 0.44f, glassH * 0.36f),
+                    size = Size(glassW * 0.38f, glassH * 0.72f),
                     cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f * zoom, 4f * zoom)
                 )
-                scope.drawRoundRect(
-                    color = Color(0xFF00E5FF),
-                    topLeft = glassCenter - Offset(glassW * 0.42f, glassH * 0.35f),
-                    size = Size(glassW * 0.35f, glassH * 0.7f),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(3f * zoom, 3f * zoom)
+                // Left diagonal reflection streak
+                scope.drawLine(
+                    color = Color.White.copy(alpha = 0.85f),
+                    start = glassCenter - Offset(glassW * 0.40f, glassH * 0.28f),
+                    end = glassCenter - Offset(glassW * 0.24f, -glassH * 0.28f),
+                    strokeWidth = 2.2f * zoom
                 )
+
+                // Right Polarized Mirrored Lens
                 scope.drawRoundRect(
                     color = Color(0xFF00E5FF),
-                    topLeft = glassCenter + Offset(glassW * 0.08f, -glassH * 0.35f),
-                    size = Size(glassW * 0.35f, glassH * 0.7f),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(3f * zoom, 3f * zoom)
+                    topLeft = glassCenter + Offset(glassW * 0.06f, -glassH * 0.36f),
+                    size = Size(glassW * 0.38f, glassH * 0.72f),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f * zoom, 4f * zoom)
+                )
+                // Right diagonal reflection streak
+                scope.drawLine(
+                    color = Color.White.copy(alpha = 0.85f),
+                    start = glassCenter + Offset(glassW * 0.10f, -glassH * 0.28f),
+                    end = glassCenter + Offset(glassW * 0.26f, glassH * 0.28f),
+                    strokeWidth = 2.2f * zoom
                 )
             }
             HatType.PARTY_HAT -> {

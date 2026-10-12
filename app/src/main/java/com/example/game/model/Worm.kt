@@ -16,7 +16,6 @@ class Worm(
 ) {
     // Segments trail
     val segments = ArrayList<Vector2D>()
-    var segmentSpacing: Float = 13f
     var baseRadius: Float = 22f
 
     // Movement & Orientation
@@ -67,7 +66,15 @@ class Worm(
     }
 
     val currentRadius: Float
-        get() = (baseRadius + min(20f, log10(max(10f, score.toFloat())) * 3.8f)).coerceIn(18f, 42f)
+        get() {
+            // Worms Zone Dynamic Growth Curve:
+            // Worm visibly expands in thickness as it devours food
+            val bonus = (score - 100).coerceAtLeast(0).toDouble().pow(0.42) * 1.15
+            return (20f + bonus.toFloat()).coerceIn(20f, 70f)
+        }
+
+    val segmentSpacing: Float
+        get() = currentRadius * 0.56f
 
     fun hasPotion(type: PotionType): Boolean = activePotions.containsKey(type)
 
@@ -130,14 +137,15 @@ class Worm(
             segments.add(headPosition)
         } else {
             // First segment follows head smoothly
+            val spacing = segmentSpacing
             var prev = headPosition
             for (i in 0 until segments.size) {
                 val current = segments[i]
                 val toPrev = prev - current
                 val dist = toPrev.length()
-                if (dist > segmentSpacing) {
+                if (dist > spacing) {
                     val dir = toPrev.normalized()
-                    segments[i] = prev - (dir * segmentSpacing)
+                    segments[i] = prev - (dir * spacing)
                 }
                 prev = segments[i]
             }

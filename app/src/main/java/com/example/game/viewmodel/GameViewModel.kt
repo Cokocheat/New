@@ -169,19 +169,49 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         return false
     }
 
-    // 7-Day Login Rewards
-    private val _loginDay = MutableStateFlow(prefs.getInt("login_day", 1))
-    val loginDay = _loginDay.asStateFlow()
-
+    // 7-Day Login Rewards (Strict 1 Day Per 24h Cooldown)
     private val _claimedDays = MutableStateFlow<Set<Int>>(
         (prefs.getStringSet("claimed_days_set", emptySet()) ?: emptySet()).mapNotNull { it.toIntOrNull() }.toSet()
     )
     val claimedDays = _claimedDays.asStateFlow()
 
+    private val _lastClaimTimeMs = MutableStateFlow(prefs.getLong("last_claim_time_ms", 0L))
+    val lastClaimTimeMs = _lastClaimTimeMs.asStateFlow()
+
+    fun getNextClaimableDay(): Int {
+        for (day in 1..7) {
+            if (!_claimedDays.value.contains(day)) return day
+        }
+        return 7
+    }
+
+    private val _loginDay = MutableStateFlow(getNextClaimableDay())
+    val loginDay = _loginDay.asStateFlow()
+
     fun isDayClaimed(day: Int): Boolean = _claimedDays.value.contains(day)
 
+    fun canClaimToday(): Boolean {
+        if (_claimedDays.value.size >= 7) return false
+        val lastClaim = _lastClaimTimeMs.value
+        if (lastClaim == 0L) return true // First claim is immediately available
+        val elapsed = System.currentTimeMillis() - lastClaim
+        return elapsed >= 24 * 60 * 60 * 1000L
+    }
+
+    fun getRemainingCooldownMs(): Long {
+        if (_claimedDays.value.size >= 7) return 0L
+        val lastClaim = _lastClaimTimeMs.value
+        if (lastClaim == 0L) return 0L
+        val elapsed = System.currentTimeMillis() - lastClaim
+        val cooldown = 24 * 60 * 60 * 1000L
+        return if (elapsed < cooldown) cooldown - elapsed else 0L
+    }
+
     fun claimDailyReward(reward: DailyReward): Boolean {
+        // Enforce: Must not be already claimed, cooldown must have elapsed, and must be the next eligible day
         if (_claimedDays.value.contains(reward.day)) return false
+        if (!canClaimToday()) return false
+        if (reward.day != getNextClaimableDay()) return false
 
         _coins.value += reward.coins
 
@@ -198,14 +228,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val nextSet = _claimedDays.value.toMutableSet().apply { add(reward.day) }
         _claimedDays.value = nextSet
 
-        if (_loginDay.value < 7 && reward.day >= _loginDay.value) {
-            _loginDay.value = min(7, _loginDay.value + 1)
-            prefs.edit().putInt("login_day", _loginDay.value).apply()
-        }
+        val now = System.currentTimeMillis()
+        _lastClaimTimeMs.value = now
+        _loginDay.value = getNextClaimableDay()
 
         prefs.edit()
             .putInt("coins", _coins.value)
             .putStringSet("claimed_days_set", nextSet.map { it.toString() }.toSet())
+            .putLong("last_claim_time_ms", now)
+            .putInt("login_day", _loginDay.value)
             .apply()
 
         soundManager.playPotion()

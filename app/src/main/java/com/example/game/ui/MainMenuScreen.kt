@@ -712,8 +712,16 @@ private fun DailyRewardDialog(
 ) {
     val loginDay by viewModel.loginDay.collectAsState()
     val claimedDays by viewModel.claimedDays.collectAsState()
-    val currentReward = Catalog.DAILY_REWARDS.find { it.day == loginDay }
-    val isTodayClaimed = viewModel.isDayClaimed(loginDay)
+    val lastClaimTime by viewModel.lastClaimTimeMs.collectAsState()
+    val canClaim = viewModel.canClaimToday()
+    val nextDay = viewModel.getNextClaimableDay()
+    val currentReward = Catalog.DAILY_REWARDS.find { it.day == nextDay }
+
+    val remainingMs = viewModel.getRemainingCooldownMs()
+    val hours = remainingMs / (1000 * 60 * 60)
+    val mins = (remainingMs / (1000 * 60)) % 60
+    val secs = (remainingMs / 1000) % 60
+    val timerStr = String.format("%02d jam %02d mnt %02d dtk", hours, mins, secs)
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -748,9 +756,9 @@ private fun DailyRewardDialog(
                     )
                 }
                 Text(
-                    text = "Klaim koin dan skin eksklusif setiap hari untuk memperkuat cacingmu!",
+                    text = if (canClaim) "Hadiah hari ke-$nextDay siap diambil! Hadiah berikutnya terbuka besok." else "Hadiah hari ini sudah diambil. Hadiah hari ke-$nextDay terbuka dalam $timerStr.",
                     fontSize = 11.sp,
-                    color = Color.White.copy(alpha = 0.7f)
+                    color = if (canClaim) Color(0xFF00E676) else Color.White.copy(alpha = 0.7f)
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -762,17 +770,19 @@ private fun DailyRewardDialog(
                 ) {
                     items(Catalog.DAILY_REWARDS) { reward ->
                         val isClaimed = viewModel.isDayClaimed(reward.day)
-                        val isCurrentDay = reward.day == loginDay
-                        val isLocked = reward.day > loginDay
+                        val isCurrentDay = reward.day == nextDay
+                        val isLocked = reward.day > nextDay
 
                         val cardBg = when {
                             isClaimed -> Color(0xFF17281F)
-                            isCurrentDay && !isClaimed -> Color(0xFF33200B)
+                            isCurrentDay && canClaim -> Color(0xFF33200B)
+                            isCurrentDay && !canClaim -> Color(0xFF241C10)
                             else -> Color(0xFF171E2D)
                         }
                         val cardBorder = when {
                             isClaimed -> Color(0xFF00E676)
-                            isCurrentDay && !isClaimed -> Color(0xFFFF9100)
+                            isCurrentDay && canClaim -> Color(0xFFFF9100)
+                            isCurrentDay && !canClaim -> Color(0xFFFFB300).copy(alpha = 0.6f)
                             else -> Color(0x33FFFFFF)
                         }
 
@@ -840,12 +850,20 @@ private fun DailyRewardDialog(
                                             color = Color(0xFF00E676)
                                         )
                                     }
-                                    isCurrentDay -> {
+                                    isCurrentDay && canClaim -> {
                                         Text(
-                                            text = "HARI INI!",
+                                            text = "KLAIM SKRG",
                                             fontSize = 9.sp,
                                             fontWeight = FontWeight.Black,
                                             color = Color(0xFFFF9100)
+                                        )
+                                    }
+                                    isCurrentDay && !canClaim -> {
+                                        Text(
+                                            text = "BESOK",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFFFB300)
                                         )
                                     }
                                     else -> {
@@ -864,7 +882,7 @@ private fun DailyRewardDialog(
                 Spacer(modifier = Modifier.height(18.dp))
 
                 // Claim Action Button
-                if (!isTodayClaimed && currentReward != null) {
+                if (canClaim && currentReward != null) {
                     Button(
                         onClick = {
                             viewModel.claimDailyReward(currentReward)
@@ -879,7 +897,7 @@ private fun DailyRewardDialog(
                         Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null, tint = Color.Black)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "KLAIM HADIAH HARI KE-$loginDay SEKARANG!",
+                            text = "KLAIM HADIAH HARI KE-$nextDay SEKARANG!",
                             color = Color.Black,
                             fontWeight = FontWeight.Black,
                             fontSize = 14.sp
@@ -891,13 +909,23 @@ private fun DailyRewardDialog(
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(46.dp)
+                            .height(50.dp)
                     ) {
-                        Text(
-                            text = "Hadiah Hari Ini Sudah Diklaim - Kembali Besok!",
-                            color = Color(0xFF00E676),
-                            fontWeight = FontWeight.Bold
-                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "Hadiah Hari Ini Sudah Diambil",
+                                color = Color(0xFF00E676),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                            if (nextDay <= 7 && !canClaim) {
+                                Text(
+                                    text = "Hari ke-$nextDay tersedia dalam: $timerStr",
+                                    color = Color.White.copy(alpha = 0.8f),
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
                     }
                 }
 
