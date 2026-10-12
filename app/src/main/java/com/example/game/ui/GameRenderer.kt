@@ -132,9 +132,32 @@ class GameRenderer {
             }
         }
 
+        // 4b. Draw Dying Worms (with popping burst animations)
+        for (dw in world.dyingWorms) {
+            drawWorm(scope, dw, ::toScreen, zoom, viewportWidth, viewportHeight)
+        }
+
         // 5. Draw Player Worm
         if (player.isAlive) {
             drawWorm(scope, player, ::toScreen, zoom, viewportWidth, viewportHeight)
+        }
+
+        // 5b. Draw Expanding Death Shockwaves
+        for (sw in world.deathShockwaves) {
+            val swPos = toScreen(sw.center)
+            val alpha = (sw.life / sw.maxLife).coerceIn(0f, 1f)
+            scope.drawCircle(
+                color = sw.color.copy(alpha = alpha * 0.70f),
+                radius = sw.currentRadius * zoom,
+                center = swPos,
+                style = Stroke(width = 4.5f * zoom)
+            )
+            scope.drawCircle(
+                color = Color.White.copy(alpha = alpha * 0.50f),
+                radius = sw.currentRadius * zoom * 0.95f,
+                center = swPos,
+                style = Stroke(width = 2.0f * zoom)
+            )
         }
 
         // 6. Draw Smooth Death Dissolve Ghost Segments
@@ -478,7 +501,14 @@ class GameRenderer {
         }
 
         // Draw segments from tail to head with segment-level culling
+        val isDying = worm.isDying
+        val deathProgress = if (isDying) (worm.deathTimer / worm.deathDuration).coerceIn(0f, 1f) else 0f
+        val poppedIndex = if (isDying) (deathProgress * segCount).toInt() else -1
+
         for (i in (segCount - 1) downTo 0) {
+            // Sequential popping death animation: already burst segments disappear!
+            if (isDying && i <= poppedIndex) continue
+
             val segPos = toScreen(worm.segments[i])
             val radiusScale = if (i > segCount - 6) 0.65f + (segCount - 1 - i) * 0.07f else 1.0f
             val segRadius = wormRadius * radiusScale
@@ -489,6 +519,14 @@ class GameRenderer {
             ) {
                 continue
             }
+
+            // Segment orientation following the worm's spine tangent
+            val segAngle = worm.getSegmentAngle(i)
+            val perpAngle = segAngle + (PI / 2f).toFloat()
+            val cosPerp = cos(perpAngle)
+            val sinPerp = sin(perpAngle)
+            val cosTan = cos(segAngle)
+            val sinTan = sin(segAngle)
 
             val segProgress = i.toFloat() / segCount.toFloat()
             val segColor = when (skin.pattern) {
@@ -511,7 +549,7 @@ class GameRenderer {
                 else -> colors[0]
             }
 
-            // 1. Dark cel-shaded outer contour
+            // 1. Dark cel-shaded outer contour (Worms Zone cartoon arcade style)
             scope.drawCircle(
                 color = Color(0xFF10141D),
                 radius = segRadius + 2.4f * zoom,
@@ -523,25 +561,109 @@ class GameRenderer {
                 radius = segRadius,
                 center = segPos
             )
-            // 3. Volumetric 3D sphere ambient occlusion shade (bottom-right)
+
+            // 3. Patterns that FOLLOW the worm's body curves!
+            when (skin.pattern) {
+                PatternType.STRIPES -> {
+                    // Transverse stripe band angled perpendicular to spine
+                    val stripeCol = colors[(i / 3 + 1) % colors.size]
+                    val bLen = segRadius * 0.85f
+                    scope.drawLine(
+                        color = stripeCol,
+                        start = segPos - Offset(cosPerp * bLen, sinPerp * bLen),
+                        end = segPos + Offset(cosPerp * bLen, sinPerp * bLen),
+                        strokeWidth = segRadius * 0.42f,
+                        cap = StrokeCap.Round
+                    )
+                }
+                PatternType.CANDY_SWIRL -> {
+                    // Delicious concentric pastry cream swirl
+                    val swirlCol = colors[min(1, colors.size - 1)]
+                    scope.drawCircle(
+                        color = swirlCol,
+                        radius = segRadius * 0.65f,
+                        center = segPos,
+                        style = Stroke(width = segRadius * 0.30f)
+                    )
+                    scope.drawCircle(
+                        color = Color.White.copy(alpha = 0.8f),
+                        radius = segRadius * 0.25f,
+                        center = segPos
+                    )
+                }
+                PatternType.DRAGON_SCALES -> {
+                    // Overlapping dragon scales pointing backwards along spine
+                    val scaleTip = segPos - Offset(cosTan * segRadius * 0.40f, sinTan * segRadius * 0.40f)
+                    scope.drawCircle(
+                        color = colors[min(1, colors.size - 1)],
+                        radius = segRadius * 0.58f,
+                        center = scaleTip
+                    )
+                    scope.drawCircle(
+                        color = Color(0xFFFFD700).copy(alpha = 0.7f),
+                        radius = segRadius * 0.32f,
+                        center = scaleTip
+                    )
+                }
+                PatternType.POLKA_DOTS -> {
+                    val dotCol = colors.last()
+                    val d1 = segPos + Offset(cosPerp * segRadius * 0.42f, sinPerp * segRadius * 0.42f)
+                    val d2 = segPos - Offset(cosPerp * segRadius * 0.42f, sinPerp * segRadius * 0.42f)
+                    scope.drawCircle(color = dotCol, radius = segRadius * 0.26f, center = d1)
+                    scope.drawCircle(color = dotCol, radius = segRadius * 0.26f, center = d2)
+                }
+                PatternType.NEON_GLOW -> {
+                    // Luminous neon core ring
+                    scope.drawCircle(
+                        color = Color.White.copy(alpha = 0.85f),
+                        radius = segRadius * 0.45f,
+                        center = segPos
+                    )
+                }
+                else -> {}
+            }
+
+            // 4. Soft lighter belly crescent along inner curve (Worms Zone signature look)
+            scope.drawCircle(
+                color = Color.White.copy(alpha = 0.20f),
+                radius = segRadius * 0.62f,
+                center = segPos + Offset(cosPerp * segRadius * 0.24f, sinPerp * segRadius * 0.24f)
+            )
+
+            // 5. Volumetric 3D sphere ambient occlusion shade (bottom-right)
             scope.drawCircle(
                 color = Color.Black.copy(alpha = 0.22f),
                 radius = segRadius * 0.88f,
                 center = segPos + Offset(segRadius * 0.16f, segRadius * 0.16f)
             )
-            // 4. Soft glossy specular highlight (top-left)
+            // 6. Soft glossy specular highlight (top-left)
             scope.drawCircle(
                 color = Color.White.copy(alpha = 0.36f),
                 radius = segRadius * 0.44f,
                 center = segPos - Offset(segRadius * 0.26f, segRadius * 0.26f)
             )
-            // 5. Pinpoint bright specular glint
+            // 7. Pinpoint bright specular glint
             val pinR = (segRadius * 0.15f).coerceAtLeast(1.5f)
             scope.drawCircle(
                 color = Color.White.copy(alpha = 0.75f),
                 radius = pinR,
                 center = segPos - Offset(segRadius * 0.36f, segRadius * 0.36f)
             )
+
+            // 8. Popping flash burst on the active popping segment during death animation
+            if (isDying && i == poppedIndex + 1) {
+                scope.drawCircle(
+                    color = Color.White.copy(alpha = 0.85f),
+                    radius = segRadius * 1.55f,
+                    center = segPos
+                )
+                scope.drawCircle(
+                    color = Color(0xFFFFD700),
+                    radius = segRadius * 1.25f,
+                    center = segPos,
+                    style = Stroke(width = 3f * zoom)
+                )
+            }
         }
 
         // Draw Head (if on or near screen)

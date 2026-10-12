@@ -5,6 +5,24 @@ import androidx.compose.ui.graphics.Color
 object Catalog {
     val SKINS = listOf(
         Skin(
+            id = "skin_caramel_roll",
+            name = "Kue Karamel Roll",
+            colors = listOf(Color(0xFFFFF3E0), Color(0xFFFB8C00), Color(0xFFF57C00)),
+            pattern = PatternType.STRIPES,
+            price = 0,
+            isUnlocked = true,
+            glowColor = Color(0x66FB8C00)
+        ),
+        Skin(
+            id = "skin_strawberry_cake",
+            name = "Kue Stroberi Krim",
+            colors = listOf(Color(0xFFE53935), Color(0xFFFFFFFF), Color(0xFFFFEB3B)),
+            pattern = PatternType.CANDY_SWIRL,
+            price = 120,
+            isUnlocked = false,
+            glowColor = Color(0x66E53935)
+        ),
+        Skin(
             id = "skin_classic",
             name = "Zamrud Klasik",
             colors = listOf(Color(0xFF00E676), Color(0xFF76FF03), Color(0xFF00C853)),

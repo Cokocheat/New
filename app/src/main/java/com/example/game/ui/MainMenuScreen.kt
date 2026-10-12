@@ -44,7 +44,8 @@ fun MainMenuScreen(viewModel: GameViewModel) {
     val loginDay by viewModel.loginDay.collectAsState()
     var showNameDialog by remember { mutableStateOf(false) }
     var showRoomDialog by remember { mutableStateOf(false) }
-    var showDailyRewardDialog by remember { mutableStateOf(!viewModel.isDayClaimed(loginDay)) }
+    // Only show daily reward popup if user hasn't claimed today's reward yet!
+    var showDailyRewardDialog by remember { mutableStateOf(viewModel.canClaimToday()) }
 
     // Pulsing button animation
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
@@ -793,6 +794,12 @@ private fun DailyRewardDialog(
                                 .width(94.dp)
                                 .height(130.dp)
                                 .border(1.5.dp, cardBorder, RoundedCornerShape(16.dp))
+                                .clickable(enabled = isCurrentDay && canClaim) {
+                                    val success = viewModel.claimDailyReward(reward)
+                                    if (success) {
+                                        onDismiss()
+                                    }
+                                }
                         ) {
                             Column(
                                 modifier = Modifier
@@ -885,7 +892,10 @@ private fun DailyRewardDialog(
                 if (canClaim && currentReward != null) {
                     Button(
                         onClick = {
-                            viewModel.claimDailyReward(currentReward)
+                            val success = viewModel.claimDailyReward(currentReward)
+                            if (success) {
+                                onDismiss()
+                            }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E676)),
                         shape = RoundedCornerShape(16.dp),

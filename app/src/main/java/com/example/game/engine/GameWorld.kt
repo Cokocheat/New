@@ -41,9 +41,11 @@ class GameWorld(
     var activeKillNotice by mutableStateOf<KillNotice?>(null)
     private var killNoticeTimer: Float = 0f
 
-    // Smooth death animations (ghost trail + exploding particles)
+    // Smooth death animations (ghost trail + exploding particles + shockwaves)
     val deathParticles = ArrayList<DeathParticle>()
     val deathGhosts = ArrayList<DeathGhostEffect>()
+    val deathShockwaves = ArrayList<DeathShockwave>()
+    val dyingWorms = ArrayList<Worm>()
 
     // Revive with Coins state
     var isRevivePromptActive by mutableStateOf(false)
@@ -103,6 +105,8 @@ class GameWorld(
         killNoticeTimer = 0f
         deathParticles.clear()
         deathGhosts.clear()
+        deathShockwaves.clear()
+        dyingWorms.clear()
         sessionDurationSec = 0f
         sessionKills = 0
         coinsCollected = 0
@@ -260,8 +264,74 @@ class GameWorld(
             if (g.life <= 0f) gIter.remove()
         }
 
+        // Update death expanding shockwaves
+        val swIter = deathShockwaves.iterator()
+        while (swIter.hasNext()) {
+            val sw = swIter.next()
+            sw.life -= deltaTime
+            sw.currentRadius += (sw.maxRadius - sw.currentRadius) * (deltaTime * 7.5f)
+            if (sw.life <= 0f) swIter.remove()
+        }
+
+        // Update dying worms sequential popping death animation
+        val dwIter = dyingWorms.iterator()
+        while (dwIter.hasNext()) {
+            val dw = dwIter.next()
+            dw.deathTimer += deltaTime
+            val progress = (dw.deathTimer / dw.deathDuration).coerceIn(0f, 1f)
+            val totalSegs = dw.segments.size
+
+            val burstIdx = (progress * totalSegs).toInt().coerceIn(0, totalSegs - 1)
+            if (burstIdx < totalSegs) {
+                val seg = dw.segments[burstIdx]
+                for (p in 0 until 3) {
+                    val pAng = Random.nextFloat() * 2 * PI.toFloat()
+                    val pSpd = 50f + Random.nextFloat() * 140f
+                    deathParticles.add(
+                        DeathParticle(
+                            pos = seg,
+                            velocity = Vector2D(cos(pAng) * pSpd, sin(pAng) * pSpd),
+                            color = dw.skin.colors.random(),
+                            radius = dw.currentRadius * 0.35f,
+                            life = 0.45f,
+                            maxLife = 0.45f
+                        )
+                    )
+                }
+            }
+
+            if (dw.deathTimer >= dw.deathDuration) {
+                val dropCount = min(42, max(12, totalSegs / 2))
+                val step = max(1, totalSegs / dropCount)
+                val foodTypes = listOf(FoodType.BURGER, FoodType.DONUT, FoodType.CAKE, FoodType.STRAWBERRY, FoodType.APPLE, FoodType.WATERMELON)
+                for (i in 0 until totalSegs step step) {
+                    val seg = dw.segments[i]
+                    val foodType = foodTypes[i % foodTypes.size]
+                    val f = Food(
+                        position = seg + Vector2D((Random.nextFloat() - 0.5f) * 22f, (Random.nextFloat() - 0.5f) * 22f),
+                        type = foodType,
+                        value = 35,
+                        radius = 16f,
+                        primaryColor = dw.skin.colors.first()
+                    )
+                    foods.add(f)
+                }
+                dw.isAlive = false
+                dw.isDying = false
+                dwIter.remove()
+
+                if (dw.isPlayer) {
+                    isRevivePromptActive = true
+                    reviveCountdownSec = 5.0f
+                } else {
+                    botWorms.remove(dw)
+                    spawnBot()
+                }
+            }
+        }
+
         // 1. Update Player
-        if (playerWorm.isAlive) {
+        if (playerWorm.isAlive && !playerWorm.isDying) {
             playerWorm.updateMovement(deltaTime)
             playerWorm.updatePotions(deltaTime)
 
@@ -331,8 +401,8 @@ class GameWorld(
             rebuildSpatialGrid()
         }
 
-        // 7. Respawn dead bots
-        val deadBots = botWorms.filter { !it.isAlive }
+        // 7. Clean up any remaining dead bots
+        val deadBots = botWorms.filter { !it.isAlive && !it.isDying }
         for (dead in deadBots) {
             botWorms.remove(dead)
             spawnBot()
@@ -341,7 +411,7 @@ class GameWorld(
 
     private fun updateBots(deltaTime: Float) {
         for (bot in botWorms) {
-            if (!bot.isAlive) continue
+            if (!bot.isAlive || bot.isDying) continue
 
             bot.updateMovement(deltaTime)
             bot.updatePotions(deltaTime)
@@ -358,14 +428,21 @@ class GameWorld(
 
                 var dangerVector: Vector2D? = null
                 val allWorms = ArrayList<Worm>()
-                if (playerWorm.isAlive) allWorms.add(playerWorm)
-                allWorms.addAll(botWorms)
+                if (playerWorm.isAlive && !playerWorm.isDying) allWorms.add(playerWorm)
+                for (b in botWorms) {
+                    if (b.isAlive && !b.isDying) allWorms.add(b)
+                }
 
                 val head = bot.headPosition
                 val checkRadius = 95f
 
                 for (other in allWorms) {
                     if (other.id == bot.id) continue
+                    // Fast AABB pre-rejection (No lag!)
+                    if (head.x + checkRadius < other.minX || head.x - checkRadius > other.maxX ||
+                        head.y + checkRadius < other.minY || head.y - checkRadius > other.maxY
+                    ) continue
+
                     for (i in 0 until other.segments.size step 2) {
                         val seg = other.segments[i]
                         val segDist = head.distanceTo(seg)
@@ -459,40 +536,71 @@ class GameWorld(
     }
 
     private fun checkWormCollisions() {
-        val allWorms = ArrayList<Worm>()
-        if (playerWorm.isAlive) allWorms.add(playerWorm)
-        allWorms.addAll(botWorms.filter { it.isAlive })
+        val allWorms = ArrayList<Worm>(botWorms.size + 1)
+        if (playerWorm.isAlive && !playerWorm.isDying) allWorms.add(playerWorm)
+        for (bot in botWorms) {
+            if (bot.isAlive && !bot.isDying) allWorms.add(bot)
+        }
 
         for (attacker in allWorms) {
-            if (!attacker.isAlive) continue
-            if (attacker.hasShield) continue
+            if (!attacker.isAlive || attacker.isDying || attacker.hasShield) continue
 
             val attackerHead = attacker.headPosition
             val attackerRadius = attacker.currentRadius * 0.72f
 
             for (victim in allWorms) {
-                if (!victim.isAlive || attacker.id == victim.id) continue
+                if (!victim.isAlive || victim.isDying || attacker.id == victim.id) continue
 
-                val segs = victim.segments
                 val victimRadius = victim.currentRadius
-                val hitDistanceThreshold = (attackerRadius + victimRadius * 0.7f)
+                val hitDistanceThreshold = (attackerRadius + victimRadius * 0.72f)
                 val hitDistSq = hitDistanceThreshold * hitDistanceThreshold
 
-                for (i in 3 until segs.size step 2) {
+                // Instant AABB Rejection (Eliminates lag completely for 35+ worms)
+                if (attackerHead.x + hitDistanceThreshold < victim.minX ||
+                    attackerHead.x - hitDistanceThreshold > victim.maxX ||
+                    attackerHead.y + hitDistanceThreshold < victim.minY ||
+                    attackerHead.y - hitDistanceThreshold > victim.maxY
+                ) {
+                    continue
+                }
+
+                val segs = victim.segments
+                val segsCount = segs.size
+                if (segsCount < 4) continue
+
+                val minX = attackerHead.x - hitDistanceThreshold
+                val maxX = attackerHead.x + hitDistanceThreshold
+                val minY = attackerHead.y - hitDistanceThreshold
+                val maxY = attackerHead.y + hitDistanceThreshold
+
+                for (i in 3 until segsCount step 2) {
                     val seg = segs[i]
+                    if (seg.x < minX || seg.x > maxX || seg.y < minY || seg.y > maxY) continue
                     if (attackerHead.distanceSquaredTo(seg) <= hitDistSq) {
                         killWorm(attacker, killer = victim)
                         break
                     }
                 }
 
-                if (!attacker.isAlive) break
+                if (!attacker.isAlive || attacker.isDying) break
             }
         }
     }
 
     private fun killWorm(deadWorm: Worm, killer: Worm?) {
-        deadWorm.isAlive = false
+        if (deadWorm.isDying) return
+        deadWorm.isDying = true
+        deadWorm.deathTimer = 0f
+        dyingWorms.add(deadWorm)
+
+        // Spawn smooth expanding shockwave ring
+        deathShockwaves.add(
+            DeathShockwave(
+                center = deadWorm.headPosition,
+                color = deadWorm.skin.colors.first(),
+                maxRadius = deadWorm.currentRadius * 4.0f
+            )
+        )
 
         // Spawn smooth fading ghost segments
         deathGhosts.add(
@@ -503,16 +611,16 @@ class GameWorld(
             )
         )
 
-        // Spawn smooth bursting particles
-        for (i in 0 until 28) {
+        // Initial burst particles
+        for (i in 0 until 36) {
             val angle = Random.nextFloat() * 2 * PI.toFloat()
-            val speed = 80f + Random.nextFloat() * 240f
+            val speed = 90f + Random.nextFloat() * 280f
             deathParticles.add(
                 DeathParticle(
                     pos = deadWorm.headPosition,
                     velocity = Vector2D(cos(angle) * speed, sin(angle) * speed),
                     color = deadWorm.skin.colors.random(),
-                    radius = Random.nextFloat() * 7f + 4f
+                    radius = Random.nextFloat() * 8f + 4f
                 )
             )
         }
@@ -531,24 +639,6 @@ class GameWorld(
 
         if (deadWorm.isPlayer || killer?.isPlayer == true) {
             soundManager.playCrash()
-        }
-
-        // Spawn food remains from dead worm's body segments
-        val dropCount = min(40, max(12, deadWorm.segments.size / 2))
-        val step = max(1, deadWorm.segments.size / dropCount)
-        for (i in 0 until deadWorm.segments.size step step) {
-            val seg = deadWorm.segments[i]
-            val f = createRandomFood(center = seg, spread = 24f).copy(
-                value = 35,
-                radius = 17f,
-                primaryColor = deadWorm.skin.colors.first()
-            )
-            foods.add(f)
-        }
-
-        if (deadWorm.isPlayer) {
-            isRevivePromptActive = true
-            reviveCountdownSec = 5.0f
         }
     }
 

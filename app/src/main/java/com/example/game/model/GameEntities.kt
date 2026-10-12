@@ -145,6 +145,15 @@ data class DeathGhostEffect(
     val maxLife: Float = 0.55f
 )
 
+data class DeathShockwave(
+    val center: Vector2D,
+    val color: Color,
+    val maxRadius: Float,
+    var currentRadius: Float = 5f,
+    var life: Float = 0.55f,
+    val maxLife: Float = 0.55f
+)
+
 data class DailyReward(
     val day: Int,
     val title: String,

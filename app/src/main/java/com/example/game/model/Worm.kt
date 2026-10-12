@@ -38,6 +38,17 @@ class Worm(
     val hasShield: Boolean
         get() = spawnShieldTimer > 0f || hasPotion(PotionType.SHIELD)
 
+    // Death animation state (Worms Zone style sequential popping feast)
+    var isDying: Boolean = false
+    var deathTimer: Float = 0f
+    val deathDuration: Float = 0.95f
+
+    // Cached Axis-Aligned Bounding Box (AABB) for 120 FPS high performance collision culling
+    var minX: Float = 0f
+    var maxX: Float = 0f
+    var minY: Float = 0f
+    var maxY: Float = 0f
+
     // Expressions & Animation
     var blinkProgress: Float = 0f // 0 = open, 1 = closed
     var nextBlinkTimer: Float = 2.2f
@@ -63,18 +74,51 @@ class Worm(
             )
             segments.add(offset)
         }
+        updateBounds()
     }
 
     val currentRadius: Float
         get() {
             // Worms Zone Dynamic Growth Curve:
-            // Worm visibly expands in thickness as it devours food
-            val bonus = (score - 100).coerceAtLeast(0).toDouble().pow(0.42) * 1.15
-            return (20f + bonus.toFloat()).coerceIn(20f, 70f)
+            // Worm visibly expands in thickness as it devours food (22f up to 85f)
+            val pts = (score - 100).coerceAtLeast(0)
+            val bonus = pts.toDouble().pow(0.42) * 1.35
+            return (22f + bonus.toFloat()).coerceIn(22f, 85f)
         }
 
     val segmentSpacing: Float
-        get() = currentRadius * 0.56f
+        get() = currentRadius * 0.52f
+
+    fun getSegmentAngle(index: Int): Float {
+        if (index <= 0) {
+            val next = segments.firstOrNull() ?: return currentAngle
+            return atan2(headPosition.y - next.y, headPosition.x - next.x)
+        }
+        val prev = if (index - 1 < segments.size) segments[index - 1] else headPosition
+        val cur = segments[index]
+        return atan2(prev.y - cur.y, prev.x - cur.x)
+    }
+
+    fun updateBounds() {
+        val r = currentRadius + 12f
+        var bMinX = headPosition.x - r
+        var bMaxX = headPosition.x + r
+        var bMinY = headPosition.y - r
+        var bMaxY = headPosition.y + r
+
+        val step = max(1, segments.size / 24)
+        for (i in 0 until segments.size step step) {
+            val seg = segments[i]
+            if (seg.x - r < bMinX) bMinX = seg.x - r
+            if (seg.x + r > bMaxX) bMaxX = seg.x + r
+            if (seg.y - r < bMinY) bMinY = seg.y - r
+            if (seg.y + r > bMaxY) bMaxY = seg.y + r
+        }
+        minX = bMinX
+        maxX = bMaxX
+        minY = bMinY
+        maxY = bMaxY
+    }
 
     fun hasPotion(type: PotionType): Boolean = activePotions.containsKey(type)
 
@@ -161,6 +205,8 @@ class Worm(
         } else if (blinkProgress > 0f) {
             blinkProgress = (blinkProgress - deltaTime * 6f).coerceAtLeast(0f)
         }
+
+        updateBounds()
     }
 
     fun grow(points: Int) {
