@@ -17,5 +17,5 @@ local.properties
 .env
 debug.keystore
 .build-outputs/
-release/
-*.apk
+!release/
+!release/**
